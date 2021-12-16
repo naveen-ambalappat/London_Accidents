@@ -1,0 +1,862 @@
+---
+title: "To what extent do weather and light conditions affect crashes?"
+author: "Naveen Ambalappat"
+date: "5/27/2021"
+output:
+  html_document:
+    df_print: paged
+nocite: |
+  @Geocomputation, @r_prog, @pct, @sf, @stplanr, @stats19, @osmdata, @tmap
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{float}
+- \usepackage{subfig}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \lhead{Student ID - 201444661}
+- \chead{}
+- \rhead{TRAN5340M - Transport Data Science}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, 
+                      eval = FALSE, 
+                      echo = FALSE,
+                      fig.align="center", 
+                      out.width="100%",
+                      fig.pos="H") 
+
+```
+
+## 1. Introduction
+The condition of driving is totally different in the night-time. This is due to various factors like reduction in the visibility and it can be very difficult to see road users like pedestrians, cyclists, and motorcyclists. UK road casualty studies by The Royal Society for the Prevention of Accidents (ROSPA) have shown 40% of collisions occur during darkness. Also, it was shown in certain studies that there is a link between weather and road accident risk.  A bad weather like heavy rain and high wind increases the probability of a road accident. A heavy rain reduces the visibility of drivers and heavy wind cause an imbalance to cyclists and motorcycle riders. Certain studies reveal that there is a significant correlation between weather condition and aggregate number of accidents. This correlation is impacted based on the road surface condition as well.
+
+This report will be looking to identify the answer for the question, ‘to what extent do weather and light conditions affect crashes?’ using transport data science techniques.  Road accidents data for UK is available and greatly encouraged to use it for academic researches. The aread of study for this report is all the accidents happened in various LSOAs of London in the year 2019.
+
+### 1.1 Scope
+The scope of this report is to analyse the impact of weather condition and night-time on accidents. For this, data of accidents happened in various LSOAs of London during the year 2019 were analysed.  The number of casualties were looked up on for accidents during night-time and bad weather considering the road surface condition and light condition. The analysis starts with data cleaning followed by data understanding and data exploration. Section 3 will focus on Night time accidents and the casualties. Section 3 will focus on casualties during bad weather and night time.   Section 4 will find out the 10 LSOAs where most number of accidents are happening at night and during bad weather. Section 5 will study what kind of road condition and light condition is causing more casualties. Further sections will try to propose policy recommendations for night time journeys and during bad weather. None of the analysis is without limitations. The limitation of our analysis will be discussed in the last section.
+
+### 1.2 Area of Study
+
+London is the capital and largest city of United Kingdom. As per the road traffic statistics, in 2019, 22.6 billion vehicle miles of traffic were travelled across the 9.2 thousand miles of roads in London. Evidently the number of accidents in London should be more than any other city. London is divided into 32 local authority districts called the London Boroughs. There is a geographical hierarchy in England and Wales called Lower Layer Super Output Areas (LSOA) to improve the reporting of small area statistics. In our data, each of the accident is marked with the LSOA where it happened. There are 4835 LSOAs in London and s will be used for the geographical plotting in this report. Out of all the accidents reported in UK, 21% of accidents were in London which will make it an important area of accident study in UK.
+
+### 1.3. Datasets
+
+The accident data used for the analysis is from a package called stats19.  Through this package we can access to Great Britain’s official road traffic casualty database – Stats19. For our analysis, three data sets of 2019 accidents were used – Accidents , Casualties and Vehicles. To get the geometric zones of all the LSOAs of London, a package called Propensity to Cycle Tool (PCT) was used. In order to distinguish night-time accidents with day time accidents, sunset/sunrise data is also used which indicates sunrise and sunset time of each day of 2019.
+
+```{r load_packages, eval=TRUE, message=FALSE, warning=FALSE}
+library(stats19)
+library(dplyr)
+library(pct)
+library(tmap)
+library(DataExplorer)
+library(lubridate)
+library(tmap)
+library(sf)
+library(ggplot2)
+library(trafficalmr)
+
+```
+```{r #load_raw_data_from_web}
+accidents=get_stats19(year=2019, type="accidents")
+crashes=get_stats19(year=2019, type = "Casualties")
+vehicles=get_stats19(year=2019,type="vehicles")
+
+```
+## 2. Data Understanding and Pre-Processing
+For any data analysis, understanding the data set is very important. The data might not be present in the format which is required for our analysis. So it needs to be processed to meet our requirement. The process which was followed to prepare the data is explained in below sections.
+
+### 2.1 Understanding the Datasets
+
+Data set was also downloaded as csv files. The column headers were clearly indicating the meaning of each columns.  Also stats19 package has two metadata data frames, stats19_schema and stats19_variables where each of the columns are clearly explained. The data set is filled with certain codes for variable like police_force, light_conditions. The meaning of each of these codes are explained in the metadata variables which is of great help in understanding the data set.
+
+
+```{r #eda1}
+
+# Access the metadata
+stats19_variables
+stats19_schema
+
+# Obtain a summary of the dataset (class and values)
+str(accidents)
+
+
+```
+### 2.2 Data Preparation 
+
+After understanding the data set, next step was to filter out the data of accidents in London which is of our interest. For this, data was filtered on the column police_force with values "Metropolitan Police", "City of London". The R function filter() was used for this purpose.  It was found that there were 25338 accidents happened in London in the year 2019. Then this was joined with the casualty data using left_join() function.
+This data was then joined with sunrise & sunset data with date of accidents as the joining key. The sunrise & sunset data contains the time of sunrise and sunset of each day in 2019The purpose of this was to filter out the accidents which happened after sunset and before sunrise.  These accidents will be classified as night accidents. The lubridate package was used to work with dates and time. All such data were extracted to a new data set named night_accidents.  
+```{r #night_accidents}
+London_Accidents= accidents %>%
+  filter(police_force=="Metropolitan Police" | police_force=="City of London")
+
+nrow(London_Accidents)#25338 
+ 
+#there are 4276 LSOAs
+unique(London_Accidents$lsoa_of_accident_location) %>%
+  length()
+
+sun_time=read.csv("sun_rise_sun_set.csv")
+
+#in the original data , dates are in the format 1 January 2019, Tuesday .
+#splitting this to day and date seperately
+
+for (i in sun_time$Date){ 
+  day=c(day,strsplit(i,",")[[1]][2]) 
+  #print (C)
+}
+#adding a new column Days and assign with splitted day from above 
+sun_time$Days=day
+
+# filter data with weather =-1
+London_Accidents %>%
+  select(weather=-1)%>%
+  length()
+
+#weather unknown data
+#There are no data with weather conidtion -1 which say data missing
+missing_weather_data= filter(London_Accidents$weather_conditions==9)
+
+#There are 1046 unknown weather condition
+missing_weather_data=London_Accidents %>%
+  filter(weather_conditions=="Unknown")
+
+
+table(missing_weather_data$date)
+
+#There are no NAs in accident index
+sum(is.na(London_Accidents$accident_index))
+
+#
+
+  
+
+
+# Data cleaning and pre processing
+#Filtering out accidents happened after sunset and before sunrise
+
+night_tmp1=London_Accidents %>%
+  select(accident_index, date,time)
+
+
+night_tmp1<-night_tmp1 %>%
+  rename(date_accident=date,time_accident=time)
+
+sun_time_join <- sun_time %>%
+  select(Sunrise,Sunset,Dates)
+
+ 
+night_tmp2 <- night_tmp1 %>%
+  left_join(sun_time_join,c("date_accident"="Dates"))
+
+night_tmp2 %>%
+  filter( time_accident > Sunset) %>%
+  nrow()
+
+class(night_tmp2$time_accident)
+
+
+which(is.na(London_Accidents$time))
+
+#converting time to lubridate::hms parsable format by adding 00 in the seconds
+for (i in 1:dim(night_tmp2)[1]){
+  night_tmp2$time_accident[i]<- paste(night_tmp2$time_accident[i],"00",sep=":")
+}
+
+for (i in 1:dim(night_tmp2)[1]){
+  night_tmp2$Sunrise[i]<- paste(night_tmp2$Sunrise[i],"00",sep=":")
+  night_tmp2$Sunset[i]<- paste(night_tmp2$Sunset[i],"00",sep=":")
+}
+#convert the time to hms format for easy comparison and picking hour of the time
+night_tmp2$Sunrise <- lubridate::hms(night_tmp2$Sunrise)
+night_tmp2$Sunset <- lubridate::hms(night_tmp2$Sunset)
+night_tmp2$time_accident <- lubridate::hms(night_tmp2$time_accident)
+na_list=c(which(is.na(night_tmp2$time_accident)))
+
+# For missing times, take average time of 10 adjancent records and update it with the missing value
+hour_na=0
+mm_ss="00"
+
+for(i in na_list){
+  hour_na=0
+  for (j in 1:5){
+    if(!is.na(night_tmp2$time_accident[i-j])){
+      if(!is.na(night_tmp2$time_accident[i+j])){
+    hour_na=hour_na+lubridate::hour(night_tmp2$time_accident[i-j])+lubridate::hour(night_tmp2$time_accident[i+j])
+    #print(hour_na)
+    
+      }
+    }
+  }
+  hour_na=round(hour_na/10,digits = 0)
+  hour_na_char=as.character(hour_na)
+  hour_na_char=paste(hour_na_char,mm_ss,sep=":") 
+  hour_na_char=paste(hour_na_char,mm_ss,sep=":")
+  
+  night_tmp2$time_accident[i]=lubridate::hms(hour_na_char)
+  
+}
+
+# filter accidents which happened after sunset and before sunrise
+night_accidents <- night_tmp2 %>%
+  filter(hour(night_tmp2$time_accident)>hour(night_tmp2$Sunset) | hour(night_tmp2$time_accident)<hour(night_tmp2$Sunrise))
+
+
+
+
+```
+The accidents data set has a column weather_conditions indicating the weather of the region when accident occurred.  Different weather conditions which were classifed as unfavourable includes Rain, high winds, Snow, fog, or mist. These weather conditions were classified unfavourable because it could have impacted the visibility of the driver. 
+
+Data cleaning is also an important step in data preparation. There were 39 accidents where the time of accident happened was missing. Since time is an important data for our analysis, it is better to update it with an optimal value instead of deleting it. To fill this missing data, average time of 10 adjacent dates accidents of the same LSOAs were taken and updated over there. In this way it is made sure that the records are preserved and not all records updated with same value.Instead it will have different values based on adjacent records.
+```{r #pre_process_1}
+
+#Take out data related to bad weather conditions
+weather_tmp1 <- London_Accidents %>%
+  select(accident_index,weather_conditions,light_conditions,road_surface_conditions,time,date,lsoa_of_accident_location)%>%
+  filter(weather_conditions!="Other" & weather_conditions !="Unknown" & weather_conditions!="Fine no high winds")
+
+#Take out data related to bad light conditions
+light_tmp1 <- London_Accidents %>%
+  select(accident_index,light_conditions,time,date)%>%
+  filter(light_conditions!="Daylight")
+
+```
+Not all columns were required for further analysis. Out of 48 variables altogether, 21 were chosen for further analysis.  Also, there were multiple records with same accident indexes, possibly due to multiple casualties. The duplicates were removed.
+
+After data cleaning and joining operations, this data was saved to local machine using write.csv() function so that this can be reused on accidental deletion or modification in the cleaned data set.
+```{r #pre_process_2}
+
+table(light_tmp1$light_conditions)
+#There are no lsoa missing 
+London_Accidents %>%
+  filter(is.na(lsoa_of_accident_location)) %>%
+  nrow()
+
+#Variable required for further analysis
+
+req_cols_accidents <- c("accident_index","accident_severity", "number_of_casualties",
+                  "first_road_class",
+                  "road_type", "speed_limit", "second_road_class", 
+                  "location_easting_osgr", "location_northing_osgr", 
+                  "lsoa_of_accident_location", "number_of_vehicles",
+                  "first_road_class", "road_type",
+                  "speed_limit", "junction_detail", "road_surface_conditions")
+#selecting all require columns from accidents data
+london<-London_Accidents %>%
+  select(all_of(req_cols_accidents))
+
+night_accidents_1<-night_accidents %>%
+  left_join(london,c("accident_index"="accident_index"))
+#removing duplicate accident indexes
+crashes_clean <- crashes %>%
+  distinct(accident_index,.keep_all = TRUE)
+#selecting all require columns from casualty data
+
+req_crashes <- c("accident_index","casualty_severity", "casualty_type", "casualty_class",
+                 "sex_of_casualty", "age_of_casualty")
+
+
+crashes_req<- crashes_clean %>%
+  select(all_of(req_crashes))
+  
+#joining night accidents data with casualty data
+night_accidents_crashes <- night_accidents_1 %>%
+  left_join(crashes_req,c("accident_index"="accident_index"))
+
+##selecting all require columns from london lsoa boundaries
+
+req_lsoa_pct=c("geo_code","lad11cd" ,"lad_name" ,"geometry")
+lsoa_london_req <-lsoa_london_pct %>%
+  select(all_of(req_lsoa_pct))
+
+# joing lsoa boundary details with night accidents
+night_accidents_crashes_geom <- night_accidents_crashes %>%
+  left_join(lsoa_london_req,c("lsoa_of_accident_location"="geo_code"))
+
+#converting to sf object
+night_accidents_crashes_geom <- st_as_sf(night_accidents_crashes_geom)
+
+#Joining weather related accidents with casualty data
+weather_accidents_crashes <- weather_tmp1 %>%
+  left_join(crashes_req,c("accident_index"="accident_index"))
+
+```
+### 2.3 Exploratory Data Analysis
+As part of exploratory data analysis, a summary of accidents happened at night and due to bad weather were found. Then these were plotted as histogram as below.  28% of total accidents happened in London were at night.  Out of the total accidents in London, 14% of them could be classified to occur during a unfavourable weather for driving. These numbers indicate there could be a relationship between accidents during night driving and different weather conditions.
+```{r #eda2}
+
+summary(night_accidents_crashes_geom)
+summary(weather_accidents_crashes)
+
+
+```
+
+
+```{r #eda3}
+#Create two binary variables to indicate whether accident happened at night or at an unfavourable weather
+for (i in 1:dim(London_Accidents)[1]){
+  London_Accidents$time[i]<- paste(London_Accidents$time[i],"00",sep=":")
+}
+
+London_Accidents$time=lubridate::hms(London_Accidents$time)
+
+
+London_Accidents_sun <- London_Accidents %>%
+  left_join(sun_time_join,c("date"="Dates"))
+
+for (i in 1:dim(London_Accidents_sun)[1]){
+  London_Accidents_sun$Sunrise[i]<- paste(London_Accidents_sun$Sunrise[i],"00",sep=":")
+  London_Accidents_sun$Sunset[i]<- paste(London_Accidents_sun$Sunset[i],"00",sep=":")
+}
+
+London_Accidents_sun$Sunrise=lubridate::hms(London_Accidents_sun$Sunrise)
+London_Accidents_sun$Sunset=lubridate::hms(London_Accidents_sun$Sunset)
+
+###################split night accidents as yes and no############
+for (i in 1:dim(London_Accidents_sun)[1]){
+  
+  if(!is.na(London_Accidents_sun$time[i])){
+    if (lubridate::hour(London_Accidents_sun$time[i])>lubridate::hour(London_Accidents_sun$Sunset[i]) | lubridate::hour(London_Accidents_sun$time[i])<lubridate::hour(London_Accidents_sun$Sunrise[i])){
+      
+       London_Accidents_sun$night[i]="yes"
+      
+    
+    
+    }
+    else{
+     London_Accidents_sun$night[i]="No"
+    }
+  
+    }
+}
+
+
+#################split bad weather as yes and no##################
+
+for (i in 1:dim(London_Accidents_sun)[1]){
+  
+  if(!is.na(London_Accidents_sun$weather_conditions[i])){
+    
+    if (London_Accidents_sun$weather_conditions[i]!="Other" & London_Accidents_sun$weather_conditions[i] !="Unknown" & London_Accidents_sun$weather_conditions[i]!="Fine no high winds"){
+      London_Accidents_sun$bad_weather[i]="Yes"
+    }
+    else{
+      London_Accidents_sun$bad_weather[i]="No"
+    }
+  }
+  
+}
+
+```
+
+
+```{r #figure_1a}
+
+
+###Bar chart showing number of accidents at day and night###########
+day_night <- c("Day Accidents","Night Accidents")
+day_night_no <-c(table(London_Accidents_sun$night)[[1]][1],table(London_Accidents_sun$night)[[2]][1])
+day_night_accidents<-data.frame(day_night,day_night_no)
+
+(figure_1a <-ggplot(day_night_accidents,aes(x=day_night,y=day_night_no,fill=day_night))+
+  geom_bar(stat = "identity",width=0.8)+
+  coord_cartesian( ylim=c(0, 20000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="Accidents Day & Night")+
+  geom_text(aes(label = day_night_no), vjust=-0.45, size=3) )
+
+figure_1a + ggsave("Figures/figure_1a.png", width = 6, height = 4)
+
+```
+
+```{r #figure_1b}
+
+
+
+#######weather based classification###########
+weather_good_bad <- c("bad weather","Fine weather")
+weather_good_bad_no <-c(table(London_Accidents_sun$bad_weather)[[2]][1],table(London_Accidents_sun$bad_weather)[[1]][1])
+weather_accidents_no <- data.frame(weather_good_bad,weather_good_bad_no)
+
+(figure_1b <-ggplot(weather_accidents_no,aes(x=weather_good_bad,y=weather_good_bad_no,fill=weather_good_bad))+
+  geom_bar(stat = "identity",width=0.8)+
+  coord_cartesian( ylim=c(0, 22000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="Accidents by weather")+
+  geom_text(aes(label = weather_good_bad_no), vjust=-0.45, size=3) )
+
+figure_1b + ggsave("Figures/figure_1b.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_1, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Number of accidents happened at night time and due to bad weather in 2019", fig.subcap=c("Day night accident classification", "classification - good and bad weather"), out.width="47.5%"}
+
+knitr::include_graphics("Figures/figure_1a.png")
+knitr::include_graphics("Figures/figure_1b.png")
+
+```
+
+## 3. Find who is more affected with the accidents
+
+At this part of the report, we will be analysing the casualties  happened on accidents at night and during bad weather. In this way we will get to know who is mostly affected during these accidents. Various casualty types to be analysed are Car occupant, cyclist, Motorcylist, Pedestrians, Heavy Goods Vehicle(HGV). There were many casualties other than these six but those were not significant in numbers. So those were classified as Other.
+
+### 3.1 Methodology
+
+The geom_bar() function from the package ggplot2 was used to draw the bar plots of casualty types against number of deaths. These plots give indications on travellers of which vehicle were mostly affected in these accidents.
+
+### 3.2 Results and Discussions
+
+The number of casualties were more for car occupants during night accidents which was close to 3000.  This was followed by motorcycle with 1519 casualties, then pedestrians with 1411 casualties and cyclists with 984 casualties. Pedestrians and cyclists are considered to be the vulnerable categories in a road journey . The data indicates this vulnerability  is equally or even more at night. The decrease in visibility at night increases the risk for cyclists and pedestrians. The number of casulties in HGV is comparitively very less .
+
+To identify whether age plays any factor for pedestrians to meet with accidents, a histogram was plotted  with age of pedestrians against number of casualties.  Maximum number of casualties were occuring between age group of 25-50. Also it can be observed more number of male pedestrians are meeting with accidents compare to female pedestrians at most age groups.
+
+```{r #figure_2a}
+
+#######casuality type for accidents at night############
+
+group_cas_type<-night_accidents_crashes_geom %>%
+  group_by(casualty_type)%>%
+  filter(!is.na(casualty_type))%>%
+  summarise(
+    cnt=n()
+  )%>%
+  arrange(desc(cnt))
+
+
+p=c(`(M|m)otorcycle*.+|Elec*.+` = "Motorcycle",`Car occupant|Taxi*`="car",`Agri*.+|Ridden*.+|Mobility*.+|Tram*.+` = "Other",
+    `Bus*.+` = "Bus", `Bus|Minibus*.+|Other*.+` = "Other", `Goods*.+` = "HGV")
+group_cas_type$casualty_type =tc_recode_casualties(group_cas_type$casualty_type,p)
+
+
+
+figure_2a<-gg_cas_type_bar<-ggplot(count_cas_type,aes(x=cas_type,y=deaths,fill=cas_type))+
+  geom_bar(stat = "identity",width=0.8)+
+  theme_minimal()+
+  labs( y="total casualties at night accidents(2019)", x="Casualty Type")
+
+figure_2a + ggsave("Figures/figure_2a.png", width = 6, height = 4)
+
+```
+
+```{r #figure_2b}
+
+#######casuality type for accidents at night############
+
+#############age of casualty for pedestrians at night###########
+
+figure_2b %>% 
+  filter(casualty_type == "Pedestrian" )%>% 
+  ggplot(aes(x = age_of_casualty, color = sex_of_casualty),fill="yellow") +
+  geom_histogram(alpha=0.5, binwidth = 2,
+                 position = 'identity') +
+  xlab("Age of Casualty") +
+  ylab("Number of Casualties") +
+  facet_grid(cols = vars(casualty_type), scales = "free_y") +
+  theme(legend.position = "top", 
+        legend.title = element_blank())+
+  scale_color_manual(values = c("#00AFBB", "#E7B800","#EFC000FF")) 
+
+figure_2b + ggsave("Figures/figure_2b.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_2, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Night - Casualty Groups and age distribution of pedestrians", fig.subcap=c("bar plot of casualty groups", "Age distribution of pedestrians"), out.width="47.5%"}
+
+knitr::include_graphics("Figures/figure_2a.png")
+knitr::include_graphics("Figures/figure_2b.png")
+
+```
+
+For weather related accidents, the result almost follows the similar trend of night accidents where most casualties were for car occupants (1305) followed by pedestrians (860), motorcyclist (784), and cyclist (551).  A bad weather like rain or snow makes the road wet and increases the risk of accidents for cyclists and motorcyclists.  Similarly heavy rain can reduce the visibility of drivers which put pedestrians at higher risks.
+To investigate which age groups of pedestrians are more vulnerable to these conditions, a histogram was plotted with age of casualty versus number of casualties.  Most of the casualties were for age group of 15-30.  Younger people including teenagers are very vulnerable to these conditions as these are the people who mostly walk to schools, universities, and work purposes.
+
+```{r #figure_3a}
+
+#######casuality type for accidents due to bad weather############
+
+group_cas_type<-night_accidents_crashes_geom %>%
+  group_by(casualty_type)%>%
+  filter(!is.na(casualty_type))%>%
+  summarise(
+    cnt=n()
+  )%>%
+  arrange(desc(cnt))
+
+
+p=c(`(M|m)otorcycle*.+|Elec*.+` = "Motorcycle",`Car occupant|Taxi*`="car",`Agri*.+|Ridden*.+|Mobility*.+|Tram*.+` = "Other",
+    `Bus*.+` = "Bus", `Bus|Minibus*.+|Other*.+` = "Other", `Goods*.+` = "HGV")
+group_cas_type$casualty_type =tc_recode_casualties(group_cas_type$casualty_type,p)
+
+
+
+(figure_3a<-gg_cas_type_bar<-ggplot(count_cas_type,aes(x=cas_type,y=deaths,fill=cas_type))+
+  geom_bar(stat = "identity",width=0.8)+
+  theme_minimal()+
+  labs( y="total casualties at night accidents(2019)", x="Casualty Type"))
+
+figure_3a + ggsave("Figures/figure_3a.png", width = 6, height = 4)
+
+```
+
+```{r #figure_3b}
+
+
+
+#############age of casualty for pedestrians due to bad weather###########
+
+(figure_3b<-weather_accidents_crashes %>% 
+  filter(casualty_type == "Pedestrian" )%>% 
+  ggplot(aes(x = age_of_casualty, fill = sex_of_casualty)) +
+  geom_histogram(alpha=0.5, binwidth = 2,
+                 position = 'identity') +
+  xlab("Age of Casualty") +
+  ylab("Number of Casualties") +
+  facet_grid(cols = vars(casualty_type), scales = "free_y") +
+  theme(legend.position = "top", 
+        legend.title = element_blank()) )
+
+figure_3b + ggsave("Figures/figure_3b.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_3, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Weather related- Casualty Groups and age distribution of pedestrians", fig.subcap=c("weather bar plot of casualty groups", "Age distribution of pedestrians"), out.width="47.5%"}
+
+knitr::include_graphics("Figures/figure_3a.png")
+knitr::include_graphics("Figures/figure_3b.png")
+
+```
+
+## 4. Geospatial Distribution of Accidents in London
+
+In this section we will be looking which were the most accident prone locations at night time and when there was unfavourable weather during 2019. We will be locating 10 LSOAs in London where the accidents rates were higher in these conditions.
+
+### 4.1.	Methodology
+
+The data from stats19 has LSOAs where accidents were reported along with the latitude and longitude of the accident location. To do the spatial plotting of the LSOA, the geometric boundaries of them are required. Since this feature is not present in stats19 data, it was downloaded separately from  a package called Propensity to Cycle Tool (PCT). This was then joined with the stats19 data set with joining key as LSOA of accident location.
+
+Then using group_by() and summarise(count = n()) function, the number of accidents occurred in each of the LSOA in the year 2019 was calculated. This is then sorted in the descending order and the top 10 LSOAs were picked using top_n() function. These LSOAs were then plotted on top of layer of London using functions from tmap package. Similar strategy was also applied for weather data and plotted 10 LSOAs for this category as well.
+
+### 4.2 Results and Discussions
+
+Figure below shows the thematic London map with geo spatial distribution of 10 most accident prone LSOAs.  The most number of accidents at night were reported in LSOA E01002444 which is the LSOA of City of London. London City is one of the busiest cities in the world where there will be travelling irrespective of day or night. 
+
+Total number of accidents at night was 53 which is against  the total number of accidents in the whole year was 195. In these 195 accidents, there were 212 casualties out of which 67 happened at night. This is 31% of total casualties which indicates the number of night accidents is significantly higher at night. Out of the 11 serious casualties in this LSOA at night, 7 of them were pedestrians and 3 of them were cyclists indicating higher risk of serious casualty for these groups.
+
+Westminster, Hackney and Hillingdon followed City of London in number of night accidents.
+
+
+```{r #LSOA_London_PCT}
+
+#Get LSOA boundaries for London
+lsoa_london_pct = get_pct_zones("london", geography = "lsoa")
+
+```
+
+```{r #sf_london_ac_lsoa}
+
+sf_london_ac_lsoa = 
+    lsoa_london_pct %>%
+    full_join(night_accidents_crashes,
+              by = c("geo_code" = "lsoa_of_accident_location")) %>% 
+    filter(!is.na(accident_index)) %>%
+    #filter(cas_type %in% c("Pedestrian", "Cyclist")) %>% # Select only pedestrian and cyclist accidents
+    group_by(lsoa_of_accident_location) %>% # Group by lsoa and casualty type
+    dplyr::summarise(count = n())%>%  # Summarise the count
+    arrange(desc(count))
+    
+sf_london_ac_lsoa <-sf_london_ac_lsoa %>%
+  rename(geo_code="night_accidents_crashes$lsoa_of_accident_location")
+  
+
+
+top_lsoa=sf_london_ac_lsoa %>%
+  top_n(n=10,wt=count)
+
+
+  
+
+
+
+  
+
+
+
+```
+
+```{r #figure_4a}
+
+tmap_mode("view")
+
+(figure_4a <-
+  tm_basemap(leaflet::providers$Esri.WorldStreetMap, alpha = 0.4) +
+  tm_shape(lsoa_london_pct) +
+  tm_polygons(col = "#B7D8E8", alpha = 0.6) +
+  tm_shape(top_lsoa) +
+  tm_polygons("geo_code", palette = "-RdBu", alpha = 0.6, lwd = 0.3) )
+
+figure_4a + ggsave("Figures/figure_4a.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_4a, eval=TRUE, echo=FALSE, include=TRUE, fig.show="hold", fig.cap="10 most accident occuring LSOAs at night in London"}
+
+knitr::include_graphics("Figures/figure_4a.png")
+
+
+```
+In the case of bad weather also, LSOA E01032739 for City of London has the highest accident rate which is 19. This is followed by 3 LSOAs under Westminster, E01033595,E01004733 and E01004736 with accident rates of  15, 13, 12 respectivel. Out of the 19 accidents, 18 casualties were reported for either two wheeler drivers or pedestrians. The roads might be wet which makes it slippery for motorcylclists, cyclists and pedestrians.
+
+```{r #weather_plot_lsoa}
+
+weather_plot_lsoa = 
+  lsoa_london_pct %>%
+  full_join(weather_tmp1,
+            by = c("geo_code" = "lsoa_of_accident_location")) %>% 
+  filter(!is.na(accident_index)) %>%
+  group_by(weather_tmp1$lsoa_of_accident_location) %>%
+  dplyr::summarise(count = n())%>%  # Summarise the count
+  arrange(desc(count))
+
+weather_plot_lsoa <-weather_plot_lsoa %>%
+  rename(geo_code="weather_tmp1$lsoa_of_accident_location")
+
+
+
+top_lsoa_weather=weather_plot_lsoa %>%
+  top_n(n=10,wt=count)
+
+
+```
+
+```{r #figure_4b}
+
+tmap_mode("view")
+
+(figure_4b <-
+  tm_basemap(leaflet::providers$Esri.WorldStreetMap, alpha = 0.4) +
+  tm_shape(lsoa_london_pct) +
+  tm_polygons(col = "#B7D8E8", alpha = 0.6) +
+  tm_shape(top_lsoa_weather) +
+  tm_polygons("geo_code", palette = "-RdBu", alpha = 0.6, lwd = 0.3))
+
+
+figure_4b + ggsave("Figures/figure_4b.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_4b, eval=TRUE, echo=FALSE, include=TRUE, fig.show="hold", fig.cap="10 most accident occuring LSOAs due to bad weather in London"}
+
+knitr::include_graphics("Figures/figure_4b.png")
+
+
+```
+
+## 5.	Investigation of factors affecting accidents
+### 5.1 Accidents happening at night
+
+We have investigated with 3 factors which could be a reason for accidents happening at night, Light Condition of roads, Road Surface condition and speed limit in that road.  For this we have plotted bar plots of these factors against the number of accidents.
+
+Lighting Condition – There are 687 cases where lighting condition is unknown. Since we cannot assume the lighting condition of a road by any mean, we will ignore it. Then only 2% of accidents are happening with a bad light condition. This indicates lighting condition could not be a big factor for the accidents happened at night as most of the roads in London might be well lit at night.
+
+Road Surface Condition - All the road surface condition other than dry makes the road wet, we will consider all these conditions as wet surface. In that case, 2379 accidents out of 7134 happened when the road surface is wet. This 33% of total accidents at night. So, Road Surface Condition has a bigger impact on night accidents.
+
+Speed Limit – Around 90 % of accidents happened on a road where speed limit is less than 30 miles per hour. Since it is night-time, the vehicles might be driving at a speed higher than the speed limit of the road.  This can contribute to the accident rates at night.
+
+```{r #figure_5a}
+
+###########Road Surface condition on night accident#########
+table(night_accidents_crashes$road_surface_conditions)
+
+(figure_5a <- night_accidents_crashes %>%
+  filter(road_surface_conditions!="Data missing or out of range")%>%
+  group_by(road_surface_conditions)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=road_surface_conditions,y=cnt,fill=road_surface_conditions))+
+  geom_bar(stat = "identity",width=0.3)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="Road surface conditions")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3) )
+
+figure_5a + ggsave("Figures/figure_5a.png", width = 6, height = 4)
+
+```
+
+```{r #figure_5b}
+
+###########Light condition on night accident#########
+
+(figure_5b<-night_accidents_crashes %>%
+  filter(!is.na(light_conditions))%>%
+  group_by(light_conditions)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=light_conditions,y=cnt,fill=light_conditions))+
+  geom_bar(stat = "identity",width=0.8)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="light conditions")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3) )
+
+
+figure_5b + ggsave("Figures/figure_5b.png", width = 6, height = 4)
+
+```
+
+```{r #figure_5c}
+
+#############speed limit night accidents##############
+(figure_5c<-night_accidents_crashes %>%
+  filter(speed_limit!=-1)%>%
+  group_by(speed_limit)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=speed_limit,y=cnt,fill=speed_limit))+
+  geom_bar(stat = "identity",width=2)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="speed limit")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3) )
+
+
+figure_5c + ggsave("Figures/figure_5c.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_5, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Factors affecting number of night accidents", fig.subcap=c("Road surface condition", "Light Condition","Speed Limit"), out.width="33%"}
+
+knitr::include_graphics("Figures/figure_5a.png")
+knitr::include_graphics("Figures/figure_5b.png")
+knitr::include_graphics("Figures/figure_5c.png")
+
+
+```
+
+### 5.2 Accidents due to bad weather
+
+Like night accidents, 3 same factors were investigated to check whether any of those external factors can impact accidents during an unfavourable weather. Bar plots were plotted with these factors against number of accidents.
+
+Lighting Condition – From the bar plot it is clear that lighting condition doesn’t have much impact on accidents during a bad weather.
+
+Road Surface Condition-  92% of accidents during bad weather is associated with a wet road. So road surface condition with a wet road has a huge impact on accidents.
+Speed Limit – Around 90 % of accidents during bad weather happened on a road where speed limit is less than 30 miles per hour.  As we have seen, since most of the accidents were happening on a wet road, if vehicles go beyond speed limit there are more risks for an accident.
+
+```{r #figure_5.2a}
+
+#######Road Surface condition bad weather###########
+figure_5.2a<-weather_accidents_crashes %>%
+  filter(road_surface_conditions!="Data missing or out of range")%>%
+  group_by(road_surface_conditions)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=road_surface_conditions,y=cnt,fill=road_surface_conditions))+
+  geom_bar(stat = "identity",width=0.3)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="Road surface conditions")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3)
+
+
+
+
+
+figure_5.2a + ggsave("Figures/figure_5.2a.png", width = 6, height = 4)
+
+```
+
+```{r #figure_5.2b}
+
+###########Road Surface condition on night accident#########
+
+
+figure_5.2b<-weather_accidents_crashes %>%
+  
+  group_by(light_conditions)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=light_conditions,y=cnt,fill=light_conditions))+
+  geom_bar(stat = "identity",width=0.3)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="Light Conditions")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3)
+
+
+
+
+figure_5.2b + ggsave("Figures/figure_5.2b.png", width = 6, height = 4)
+
+```
+
+```{r #figure_5.2c}
+
+###########Road Surface condition on night accident#########
+########speed limit weather#########
+for_weather_speedlimit <-London_Accidents %>%
+  select(accident_index,speed_limit)
+
+weather_accidents_crashes <- weather_accidents_crashes %>%
+  left_join(for_weather_speedlimit,c("accident_index"="accident_index"))
+
+figure_5.2c<-weather_accidents_crashes %>%
+  filter(speed_limit!=-1)%>%
+  group_by(speed_limit)%>%
+  
+  summarise(cnt=n())%>%
+ggplot(aes(x=speed_limit,y=cnt,fill=speed_limit))+
+  geom_bar(stat = "identity",width=2)+
+  coord_cartesian( ylim=c(0, 5000))+
+  theme_minimal()+
+  labs( y="Number of accidents(2019)", x="speed limit")+
+  geom_text(aes(label = cnt), vjust=-0.45, size=3) 
+
+figure_5.2c + ggsave("Figures/figure_5.2c.png", width = 6, height = 4)
+
+```
+
+```{r display_figure_5.2, eval=TRUE, echo=FALSE, include=TRUE, fig.cap="Factors affecting number of accidents due to bad weather", fig.subcap=c("Road surface condition", "Light Condition","Speed Limit"), out.width="33%"}
+
+knitr::include_graphics("Figures/figure_5.2a.png")
+knitr::include_graphics("Figures/figure_5.2b.png")
+knitr::include_graphics("Figures/figure_5.2c.png")
+
+
+```
+
+## 6.	Policy Recommendations
+
+As per the above analysis, we have noticed how a bad weather or night-time is increasing the risk of road accidents.  We have seen that these conditions pose risk of casualties for pedestrians, cyclists, and motorcyclists. There are three factors which we observed to improve the road safety for the general during these conditions.
+
+Upgrading existing signal systems and cycle tracks:  Most of the accidents happened at night and during bad weather involves casualties with pedestrians, cyclists, and motorcyclists. We have seen in section 4 that most number of accidents were happing in City of London and serious casualties were happening to pedestrians and cyclists. Pedestrians are commonly injured when crossing the road.  If we can introduce modern technique like split cycle offset optimisation (SCOOT) in more signal points, it allows signals to adjust timings based on the number of pedestrians detected at a crossing waiting to cross. Also, it needs to be checked if there are footway clutters like street furniture which causes injuries to pedestrians. For cyclists, we need to check whether number of cycle tracks are proportionally getting increased based on the increase in number of cycle riders.
+
+Dealing with wet roads: As we have seen wet roads play a significant increase in the risk of causing road accidents. London sees lots of rain around the year which makes the road surface wet most time of the year. Cyclists can take safety measures like improve the grip of tyres with a slick tread which keeps more rubber to contact with tarmac which gives better grip. Also, they need to ensure to helmets with cycling caps under helmet which will deflect the rain away from the eyes. Also, it can be checked to enforce a law to make helmets mandatory for cyclist at least inside cities like London.
+
+Enforcement of traffic laws:  Obeying the traffic rules is very important for a safe road journey. At night and during a bad weather, there are chances of people being careless about traffic rules. This poses serious risk of getting involved in accidents especially for pedestrian and cyclists. So, if we can particularly make sure traffic laws are being enforced during these times and at the places where more accidents are being reported. One suggestion is to automate traffic enforcement by implementing more cameras to detect traffic violation. Moreover, pedestrian also needs to make sure they follow traffic rules and use the facilities like signals efficiently to avoid any harm to themselves.
+
+## 8.Conclusion
+
+The condition of driving at night times and during a bad weather is totally different from other times. This is mainly due to the reduction in visibility due to darkness or a heavy rain. The distance a driver can see gets shortened at night. Also need of eyes to get adjusted with the lighting after driving through a well lit road or a building is also a reason for night time accidents. Also, we have seen how road surface conditions like wet roads and speed limit become an important factor of road accident risks. 
+
+Through geospatial plotting we have uncovered the list of LSOAs where more number of accidents are happening at night and during a bad weather. In the year 2019, most such accidents occurred in City of London. Also, we have found car occupants, pedestrians, cyclists, and motor cyclists are the most affect group in these conditions. This report also gives different policy recommendation to avoid risk of road accidents at these times.
+
+\newpage
+## References
+https://www.rospa.com/rospaweb/docs/advice-services/road-safety/drivers/driving-at-night.pdf
+
+https://core.ac.uk/download/pdf/232568852.pdf
+
+https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/463100/weather-on-road-casualties.pdf
+
+BRSI, 2014, *Are there more accidents in the rain?
+Exploratory analysis of the influence of weather conditions on the number of road accidents in Belgium*
+
+https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/358190/rrcgb2013-03.pdf
+
+http://content.tfl.gov.uk/cycle-safety-action-plan.pdf
+http://content.tfl.gov.uk/pedestrian-safety-action-plan.pdf
+https://itsleeds.github.io/rrsrr/ 
+
+
